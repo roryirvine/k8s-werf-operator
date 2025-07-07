@@ -1,0 +1,5 @@
+[flake8]
+ignore = CFQ002
+exclude =
+max-line-length = 120
+import-order-style = pep8

@@ -1,0 +1,116 @@
+default:
+  image: registry.gitlab.com/vstconsulting/images:ubuntu
+
+variables:
+  GET_SOURCES_ATTEMPTS: 3
+  ARTIFACT_DOWNLOAD_ATTEMPTS: 3
+  RESTORE_CACHE_ATTEMPTS: 3
+  TOX_ARGS: ""
+  CC: "ccache gcc"
+
+stages:
+  - code_standarts
+  - test
+  - release
+  - post_release
+  - cleanup
+
+
+.branch_tests_template: &branch_tests
+  stage: test
+  image: registry.gitlab.com/vstconsulting/images:ubuntu
+  coverage: '/\d+\%\s*$/'
+  variables:
+    TOX_ENVS: ""
+  before_script:
+    - if [ "${TOX_ENVS}" ]; then export TOX_ARGS="${TOX_ARGS} -e ${TOX_ENVS}"; fi
+  script:
+   - tox $TOX_ARGS
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH =~ /^release_/'
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_PIPELINE_SOURCE == "external_pull_request_event"'
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_TAG == null'
+      when: on_success
+    - when: never
+
+
+code_style:
+  <<: *branch_tests
+  stage: code_standarts
+  parallel:
+    matrix:
+      - TOX_ENVS:
+          - flake
+          - mypy
+          - bandit
+
+release:
+  stage: release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $GIT_ACCESS_USER && $GIT_ACCESS_PASSWORD'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH =~ /^release_/ && $GIT_ACCESS_USER && $GIT_ACCESS_PASSWORD'
+      when: on_success
+    - when: never
+  before_script:
+    - url_host=`echo "${CI_REPOSITORY_URL}" | sed -e "s/https:\/\/gitlab-ci-token:.*@//g"`
+    - git config user.name "${GITLAB_USER_NAME}"
+    - git config user.email "${GITLAB_USER_EMAIL}"
+    - git remote set-url origin "https://${GIT_ACCESS_USER}:${GIT_ACCESS_PASSWORD}@${url_host}"
+  script:
+    - bash autorelease.sh
+
+.release_env_jobs: &release_template
+  stage: release
+  image: registry.werf.io/werf/werf
+  before_script:
+    - type werf && source $(werf ci-env gitlab --as-file)
+    - werf version
+
+
+Release:
+  <<: *release_template
+  script:
+    - werf build -p
+    - werf bundle publish --final-repo=$WERF_REPO/bundles --tag $CI_COMMIT_TAG
+    - werf bundle publish --final-repo=$WERF_REPO/bundles --tag latest
+    - werf export --tag=$WERF_REPO/images:$CI_COMMIT_TAG --tag=$WERF_REPO/images:latest
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_PIPELINE_SOURCE != "schedule"'
+      when: on_success
+    - when: never
+
+Cleanup:
+  <<: *release_template
+  stage: cleanup
+  environment:
+    name: "$CI_COMMIT_BRANCH"
+    url: "$ENDPOINT"
+    action: access
+  script:
+    - werf cr login -u nobody -p ${WERF_IMAGES_CLEANUP_PASSWORD} $WERF_REPO
+    - werf cleanup
+  rules:
+    - if: '$WERF_IMAGES_CLEANUP_PASSWORD && $CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - when: never
+
+
+release_job:
+  stage: post_release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: Release
+  rules:
+    - if: '$CI_COMMIT_TAG && $PYPI_UPLOAD_PASSWORD && $PYPI_UPLOAD_NAME'
+      when: on_success
+    - when: never
+  script:
+    - echo "running release job for $CI_COMMIT_TAG"
+  release:
+    name: '$CI_COMMIT_TAG'
+    description: '$CI_COMMIT_DESCRIPTION'
+    tag_name: '$CI_COMMIT_TAG'
+    ref: '$CI_COMMIT_SHA'
