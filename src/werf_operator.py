@@ -1,26 +1,7 @@
-<<<<<<< HEAD
-=======
-"""
-Copyright 2023 Sergey Klyuykov
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-from __future__ import annotations
-
->>>>>>> 7f7efc6 (0.2.1)
 import base64
 import dataclasses
 import functools
+import json
 import os
 import random
 import re
@@ -38,6 +19,7 @@ from oras.client import OrasClient
 from pkg_resources import parse_version
 
 DISABLE_ANNOTATION = 'operator.werf.dev/disable-autoupdate'
+BUNDLE_ANNOTATION = 'operator.werf.dev/bundle-uid'
 JOB_LABEL = 'operator.werf.dev/deployment'
 JOBS_TTL = int(os.getenv('WERF_OPERATOR_JOBS_TTL', '120'))
 T = _t.TypeVar('T')
@@ -57,8 +39,7 @@ def reconnect_on_error(func: T) -> T:
 
 def valid_annotation(annotation):
     return any([
-        annotation.startswith('app.kubernetes.io/'),
-        annotation.startswith('app.k8s.io/'),
+        annotation.startswith('operator.werf.dev'),
         annotation.startswith('argocd.argoproj.io/'),
     ])
 
@@ -77,6 +58,7 @@ class RepoHandler:
     semver: bool = False
     repo_username: _t.Optional[str] = None
     repo_password: _t.Optional[str] = None
+    uid: _t.Optional[str] = None
     annotations: dict[str, str] = dataclasses.field(default_factory=dict)
     labels: dict[str, str] = dataclasses.field(default_factory=dict)
 
@@ -87,6 +69,9 @@ class RepoHandler:
                 self.semver = True
             else:
                 self.version = re.compile(r'^' + self.version + r'$')
+
+        if self.uid:
+            self.labels[BUNDLE_ANNOTATION] = self.uid
 
     def login(self):
         self.client.login(password=self.repo_password, username=self.repo_username)
@@ -129,7 +114,27 @@ class RepoHandler:
         if action == 'dismiss':
             command = f'helm uninstall {name} --namespace={self.namespace or namespace}'
         else:
+            patch_data = {
+                "metadata": {
+                    "ownerReferences": [
+                        {
+                            "apiVersion": "operator.werf.dev/v1",
+                            "kind": "Bundle",
+                            "name": name,
+                            "uid": self.uid,
+                        },
+                    ],
+                },
+            }
             command = action
+            if self.uid and BUNDLE_ANNOTATION in self.labels:
+                command = (
+                    f' && '
+                    f'for i in $(werf kubectl -n {self.namespace} get all -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
+                    'do '
+                    f'werf kubectl patch -n {self.namespace} $i -p \'{json.dumps(patch_data)}\';'
+                    'done'
+                )
 
         image = f'registry.werf.io/werf/werf:{os.getenv("WERF_OPERATOR_TAG", "latest")}'
 
@@ -247,6 +252,7 @@ def get_image_repo(namespace, registry, repo, auth, version='latest', project_na
         version=version,
         namespace=project_namespace,
         secret_name=auth,
+        uid=kwargs.get('uid'),
         **kwargs,
     )
 
@@ -260,10 +266,7 @@ def get_image_repo(namespace, registry, repo, auth, version='latest', project_na
 @kopf.on.resume('operator.werf.dev', 'v1', 'Bundle')
 def ready(spec, namespace, name, meta, **_):
     try:
-        NAMESPACED_REPOS[namespace][name] = get_image_repo(
-            namespace,
-            **{'annotations': meta.get('annotations', {}), 'labels': meta.get('labels', {}), **spec},
-        )
+        NAMESPACED_REPOS[namespace][name] = get_image_repo(namespace, uid=meta.get('uid'), **spec)
     except Exception as err:
         raise kopf.TemporaryError(f"The data is not yet ready. {err}", delay=5)
     return 1
@@ -272,10 +275,7 @@ def ready(spec, namespace, name, meta, **_):
 @kopf.on.update('operator.werf.dev', 'v1', 'Bundle')  # type: ignore
 def ready(spec, name, namespace, body, meta, **_):  # noqa: F811
     try:
-        NAMESPACED_REPOS[namespace][name] = get_image_repo(
-            namespace,
-            **{'annotations': meta.get('annotations', {}), 'labels': meta.get('labels', {}), **spec},
-        )
+        NAMESPACED_REPOS[namespace][name] = get_image_repo(namespace, uid=meta.get('uid'), **spec)
     except Exception as err:
         kopf.exception(body, exc=err)
         return 0
