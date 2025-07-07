@@ -252,7 +252,6 @@ def get_image_repo(namespace, registry, repo, auth, version='latest', project_na
         version=version,
         namespace=project_namespace,
         secret_name=auth,
-        uid=kwargs.get('uid'),
         **kwargs,
     )
 
