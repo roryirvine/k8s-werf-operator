@@ -65,7 +65,7 @@ Create the name of the service account to use
 Use werf image
 */}}
 {{- define ".helm.image" -}}
-{{- if .Values.werf.image.operator }}
+{{- if and ((.Values.werf).image).operator }}
 {{- .Values.werf.image.operator }}
 {{- else }}
 {{- .Values.image.repository }}{{ if .Values.image.tag }}:{{ .Values.image.tag }}{{ end }}

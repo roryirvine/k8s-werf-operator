@@ -4,6 +4,8 @@ metadata:
   name: {{ include ".helm.fullname" . }}
   labels:
     {{- include ".helm.labels" . | nindent 4 }}
+  annotations:
+    "werf.io/weight": "1"
 spec:
   replicas: {{ .Values.replicaCount }}
   strategy:
@@ -25,12 +27,16 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include ".helm.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: "{{ include ".helm.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.env }}
@@ -44,7 +50,7 @@ spec:
             - kopf
             - run
             - --liveness=http://0.0.0.0:8080/healthz
-            {{ if .Values.verbose }}
+            {{- if .Values.verbose }}
             - --verbose
             {{- end }}
             {{- if not .Values.serviceAccount.create }}
@@ -57,8 +63,10 @@ spec:
             httpGet:
               path: /healthz
               port: 8080
+          {{- with .Values.resources }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

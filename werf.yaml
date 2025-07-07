@@ -16,7 +16,7 @@ cleanup:
 
 ---
 image: operator
-from: ubuntu:22.04
+from: ubuntu:24.04
 fromLatest: true
 mount:
   - from: build_dir
@@ -34,20 +34,24 @@ git:
 shell:
   beforeInstall:
     - apt update
-    - apt install python3.11-minimal libyaml-0-2 locales -y
+    - apt install python3.12-minimal libyaml-0-2 locales -y
     - sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
     - locale-gen
   install:
     - apt update
     - apt install curl -y
-    - curl https://bootstrap.pypa.io/get-pip.py | python3.11
+    - mv -v /usr/lib/python3.12/EXTERNALLY-MANAGED ./
+    - curl https://bootstrap.pypa.io/get-pip.py | python3.12
+    - mv -v ./EXTERNALLY-MANAGED /usr/lib/python3.12/
     - apt remove curl -y
     - apt autoremove -y
   setup:
     - apt update
-    - apt install python3.11-dev libyaml-dev -y
+    - apt install python3.12-dev libyaml-dev -y
+    - mv -v /usr/lib/python3.12/EXTERNALLY-MANAGED ./
     - pip install -r/app/requirements.txt setuptools
-    - apt remove python3.11-dev libyaml-dev -y
+    - mv -v ./EXTERNALLY-MANAGED /usr/lib/python3.12/
+    - apt remove python3.12-dev libyaml-dev -y
     - apt autoremove -y
 docker:
   ENV:

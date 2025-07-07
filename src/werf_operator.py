@@ -1,5 +1,26 @@
+<<<<<<< HEAD
+=======
+"""
+Copyright 2023 Sergey Klyuykov
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+from __future__ import annotations
+
+>>>>>>> 7f7efc6 (0.2.1)
 import base64
 import dataclasses
+import functools
 import os
 import random
 import re
@@ -19,6 +40,27 @@ from pkg_resources import parse_version
 DISABLE_ANNOTATION = 'operator.werf.dev/disable-autoupdate'
 JOB_LABEL = 'operator.werf.dev/deployment'
 JOBS_TTL = int(os.getenv('WERF_OPERATOR_JOBS_TTL', '120'))
+T = _t.TypeVar('T')
+
+
+def reconnect_on_error(func: T) -> T:
+    @functools.wraps(func)  # type: ignore[arg-type]
+    def wrapper(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except ValueError:
+            self.login()
+            return func(self, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+def valid_annotation(annotation):
+    return any([
+        annotation.startswith('app.kubernetes.io/'),
+        annotation.startswith('app.k8s.io/'),
+        annotation.startswith('argocd.argoproj.io/'),
+    ])
 
 
 @dataclasses.dataclass(slots=True)
@@ -33,6 +75,10 @@ class RepoHandler:
     secret_name: _t.Optional[str] = None
     namespace: _t.Optional[str] = None
     semver: bool = False
+    repo_username: _t.Optional[str] = None
+    repo_password: _t.Optional[str] = None
+    annotations: dict[str, str] = dataclasses.field(default_factory=dict)
+    labels: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
         if isinstance(self.version, str):
@@ -42,11 +88,12 @@ class RepoHandler:
             else:
                 self.version = re.compile(r'^' + self.version + r'$')
 
-    def login(self, username, password):
-        self.client.login(password=password, username=username)
+    def login(self):
+        self.client.login(password=self.repo_password, username=self.repo_username)
 
-    def get_required_tag(self):
-        tags = list(filter(self.version.match, self.client.get_tags(self.repo)['tags']))
+    @reconnect_on_error
+    def get_required_tag(self) -> str:
+        tags = list(filter(self.version.match, self.client.get_tags(self.repo)))  # type: ignore[union-attr]
 
         if self.semver:
             tags.sort(key=parse_version)
@@ -55,7 +102,8 @@ class RepoHandler:
 
         return tags[0]
 
-    def get_required_digest(self, tag):
+    @reconnect_on_error
+    def get_required_digest(self, tag: str) -> str:
         manifest = self.client.remote.get_manifest(f'{self.repo}:{tag}')
         return manifest['config']['digest']
 
@@ -106,10 +154,22 @@ class RepoHandler:
                     for i, n in enumerate(data)
                 })
 
+        env_variables.update({
+            f'WERF_ADD_ANNOTATION_OPERATOR{i}': f'{k}={v}'
+            for i, (k, v) in enumerate(self.annotations.items())
+            if valid_annotation(k)
+        })
+        env_variables.update({
+            f'WERF_ADD_LABEL_OPERATOR{i}': f'{k}={v}'
+            for i, (k, v) in enumerate(self.labels.items())
+            if valid_annotation(k)
+        })
+
         exec_container = {
             "image": image,
             "name": f"{action.replace(' ', '-')}-bundle",
-            "args": ['sh', '-ec', f'werf {command}'],
+            "command": ['sh'],
+            "args": ['-ec', f'werf {command}'],
             "env": [
                 {"name": key, "value": value}
                 for key, value in env_variables.items()
@@ -124,6 +184,11 @@ class RepoHandler:
                 'name': f"werf-{action.replace(' ', '-')}-{uuid.uuid4()}",
                 'annotations': {
                     JOB_LABEL: name,
+                    **{
+                        k: v
+                        for k, v in self.annotations.items()
+                        if valid_annotation(k)
+                    },
                 },
             },
             'spec': {
@@ -144,7 +209,8 @@ class RepoHandler:
             result['spec']['template']['spec']['initContainers'] = [{
                 "image": image,
                 "name": 'repo-auth',
-                "args": ['sh', '-ec', f'werf cr login {self.client.remote.hostname}'],
+                "command": ['sh'],
+                "args": ['-ec', f'werf cr login {self.client.remote.hostname}'],
                 "env": [
                     {"name": 'WERF_USERNAME',
                      "valueFrom": {"secretKeyRef": {"name": self.secret_name, "key": "username"}}},
@@ -169,6 +235,12 @@ NAMESPACED_REPOS: dict[str, dict[str, RepoHandler]] = defaultdict(lambda: {})
 
 
 def get_image_repo(namespace, registry, repo, auth, version='latest', project_namespace=None, **kwargs) -> RepoHandler:
+    if auth:
+        v1 = k8s_client.CoreV1Api()
+        sec: dict[str, str] = v1.read_namespaced_secret(auth, namespace).data  # type: ignore
+        kwargs['repo_username'] = base64.b64decode(sec["username"]).decode('utf-8')
+        kwargs['repo_password'] = base64.b64decode(sec["password"]).decode('utf-8')
+
     repo_handler = RepoHandler(
         client=OrasClient(hostname=registry),
         repo=repo,
@@ -179,29 +251,31 @@ def get_image_repo(namespace, registry, repo, auth, version='latest', project_na
     )
 
     if auth:
-        v1 = k8s_client.CoreV1Api()
-        sec: dict[str, str] = v1.read_namespaced_secret(auth, namespace).data  # type: ignore
-        username = base64.b64decode(sec["username"]).decode('utf-8')
-        password = base64.b64decode(sec["password"]).decode('utf-8')
-        repo_handler.login(password=password, username=username)
+        repo_handler.login()
 
     return repo_handler
 
 
 @kopf.on.create('operator.werf.dev', 'v1', 'Bundle')
 @kopf.on.resume('operator.werf.dev', 'v1', 'Bundle')
-def ready(spec, namespace, name, **_):
+def ready(spec, namespace, name, meta, **_):
     try:
-        NAMESPACED_REPOS[namespace][name] = get_image_repo(namespace, **spec)
+        NAMESPACED_REPOS[namespace][name] = get_image_repo(
+            namespace,
+            **{'annotations': meta.get('annotations', {}), 'labels': meta.get('labels', {}), **spec},
+        )
     except Exception as err:
         raise kopf.TemporaryError(f"The data is not yet ready. {err}", delay=5)
     return 1
 
 
 @kopf.on.update('operator.werf.dev', 'v1', 'Bundle')  # type: ignore
-def ready(spec, name, namespace, body, **_):  # noqa: F811
+def ready(spec, name, namespace, body, meta, **_):  # noqa: F811
     try:
-        NAMESPACED_REPOS[namespace][name] = get_image_repo(namespace, **spec)
+        NAMESPACED_REPOS[namespace][name] = get_image_repo(
+            namespace,
+            **{'annotations': meta.get('annotations', {}), 'labels': meta.get('labels', {}), **spec},
+        )
     except Exception as err:
         kopf.exception(body, exc=err)
         return 0
@@ -252,24 +326,34 @@ def update_bundle(name, namespace, **_):
     annotations={DISABLE_ANNOTATION: kopf.ABSENT},
     when=(lambda status, **_: status.get('ready')),
 )
-def update(name, namespace, status, body, patch, logger, **_):
+def update(name, namespace, status, body, patch, logger, spec, **_):
     try:
         handler = NAMESPACED_REPOS[namespace][name]
     except KeyError as err:
         raise kopf.TemporaryError(f'Still initialize: {err}', delay=10)
 
-    current_digest = status.get('deploy', {}).get('digest')
     try:
         latest_tag = handler.get_required_tag()
+    except KeyError as err:
+        if "'tags'" == str(err):
+            handler = NAMESPACED_REPOS[namespace][name] = get_image_repo(namespace, **spec)
+            latest_tag = handler.get_required_tag()
+        else:
+            kopf.exception(body, exc=err)
+            raise kopf.TemporaryError('Cannot parse latest tag.', delay=300)
+
+    current_digest = status.get('deploy', {}).get('digest')
+    try:
         latest_digest = handler.get_required_digest(latest_tag)
     except ValueError as err:
         kopf.exception(body, exc=err)
         raise kopf.TemporaryError(str(err))
 
-    if current_digest == latest_digest and not status.get('forceUpdate'):
+    if str(current_digest) == str(latest_digest) and not status.get('forceUpdate'):
         return
 
     kopf.info(body, reason='Update', message='Initialize deploy application by digest update.')
+    logger.info(f"Updating bundle image:\n{current_digest=}\n{latest_digest=}\nforceUpdate{status.get('forceUpdate')}")
     patch.status['target'] = {"digest": latest_digest, "version": latest_tag}
     job = handler.deploy(latest_tag, name, namespace)
     kopf.adopt(job)

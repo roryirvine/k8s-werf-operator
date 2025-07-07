@@ -22,7 +22,7 @@ spec:
           name: Registry
           type: string
         - jsonPath: .spec.repo
-          name: Registry
+          name: Repository
           type: string
         - jsonPath: .spec.version
           name: Target

@@ -1,2 +1,2 @@
-kopf[uvloop,full-auth]~=1.36.0
-oras~=0.1.12
+kopf[uvloop,full-auth]~=1.37.2
+oras~=0.1.29
