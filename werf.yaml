@@ -43,6 +43,7 @@ shell:
     - mv -v /usr/lib/python3.12/EXTERNALLY-MANAGED ./
     - curl https://bootstrap.pypa.io/get-pip.py | python3.12
     - mv -v ./EXTERNALLY-MANAGED /usr/lib/python3.12/
+    - find /usr/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
     - apt remove curl -y
     - apt autoremove -y
   setup:
@@ -51,6 +52,8 @@ shell:
     - mv -v /usr/lib/python3.12/EXTERNALLY-MANAGED ./
     - pip install -r/app/requirements.txt setuptools
     - mv -v ./EXTERNALLY-MANAGED /usr/lib/python3.12/
+    - find /usr/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
+    - find /usr/local/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
     - apt remove python3.12-dev libyaml-dev -y
     - apt autoremove -y
 docker:
