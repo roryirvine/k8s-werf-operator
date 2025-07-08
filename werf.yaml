@@ -35,6 +35,7 @@ shell:
   beforeInstall:
     - apt update
     - apt install python3.12-minimal libyaml-0-2 locales -y
+    - find /usr/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
     - sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
     - locale-gen
   install:

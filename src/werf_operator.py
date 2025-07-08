@@ -91,7 +91,7 @@ class RepoHandler:
 
     @reconnect_on_error
     def get_required_digest(self, tag: str) -> str:
-        manifest = self.client.remote.get_manifest(f'{self.repo}:{tag}')
+        manifest = self.client.get_manifest(f'{self.repo}:{tag}')
         return manifest['config']['digest']
 
     def get_latest_digest(self):
@@ -106,7 +106,7 @@ class RepoHandler:
     def make_action(self, version, name, namespace, action):
         ns = self.namespace or namespace
         env_variables = {
-            "WERF_REPO": f'{self.client.remote.hostname}/{self.repo}',
+            "WERF_REPO": f'{self.client.hostname}/{self.repo}',
             "WERF_TAG": version,
             "WERF_NAMESPACE": ns,
             "WERF_RELEASE": name,
@@ -224,7 +224,7 @@ class RepoHandler:
                 "image": image,
                 "name": 'repo-auth',
                 "command": ['sh'],
-                "args": ['-ec', f'werf cr login {self.client.remote.hostname}'],
+                "args": ['-ec', f'werf cr login {self.client.hostname}'],
                 "env": [
                     {"name": 'WERF_USERNAME',
                      "valueFrom": {"secretKeyRef": {"name": self.secret_name, "key": "username"}}},
