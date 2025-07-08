@@ -172,6 +172,7 @@ class RepoHandler:
             for i, (k, v) in enumerate(self.labels.items())
             if valid_annotation(k)
         })
+        env_variables['WERF_BUILDAH_MODE'] = ""
 
         exec_container = {
             "image": image,
@@ -209,12 +210,6 @@ class RepoHandler:
                         'volumes': volumes,
                         'containers': [exec_container],
                         'restartPolicy': 'Never',
-                        'securityContext': {
-                            'privileged': True,
-                            'seccompProfile': {
-                                'type': 'Unconfined',
-                            },
-                        },
                     },
                 },
             },
@@ -230,6 +225,8 @@ class RepoHandler:
                      "valueFrom": {"secretKeyRef": {"name": self.secret_name, "key": "username"}}},
                     {"name": 'WERF_PASSWORD',
                      "valueFrom": {"secretKeyRef": {"name": self.secret_name, "key": "password"}}},
+                    {"name": 'WERF_BUILDAH_MODE',
+                     "value": ""},
                 ],
                 'volumeMounts': deepcopy(mounts),
             }]
