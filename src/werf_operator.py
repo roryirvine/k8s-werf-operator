@@ -102,17 +102,18 @@ class RepoHandler:
         return self.make_action(version, name, namespace, action='dismiss')
 
     def make_action(self, version, name, namespace, action):
+        ns = self.namespace or namespace
         env_variables = {
             "WERF_REPO": f'{self.client.remote.hostname}/{self.repo}',
             "WERF_TAG": version,
-            "WERF_NAMESPACE": self.namespace or namespace,
+            "WERF_NAMESPACE": ns,
             "WERF_RELEASE": name,
         }
         if self.env:
             env_variables.update({k: v for k, v in self.env.items() if k not in env_variables})
 
         if action == 'dismiss':
-            command = f'helm uninstall {name} --namespace={self.namespace or namespace}'
+            command = f'helm uninstall {name} --namespace={ns}'
         else:
             patch_data = {
                 "metadata": {
@@ -130,9 +131,9 @@ class RepoHandler:
             if self.uid and BUNDLE_ANNOTATION in self.labels:
                 command += (
                     f' && '
-                    f'for i in $(werf kubectl -n {self.namespace} get all -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
+                    f'for i in $(werf kubectl -n {ns} get all -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
                     'do '
-                    f'werf kubectl patch -n {self.namespace} $i -p \'{json.dumps(patch_data)}\';'
+                    f'werf kubectl patch -n {ns} $i -p \'{json.dumps(patch_data)}\';'
                     'done'
                 )
 

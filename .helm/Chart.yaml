@@ -3,5 +3,5 @@ name: werf-operator
 description: Simple kubernetes operator for checking registry and pull bundles to cluster via job.
 type: application
 version: 0.1.1
-appVersion: "0.2.6"
+appVersion: "0.2.7"
 icon: https://camo.githubusercontent.com/7c1c7751ff0f295c24c3d8553939853288c264605254588e2969b7b6fb0c6dff/68747470733a2f2f776572662e696f2f6173736574732f696d616765732f776572662d6c6f676f2e737667
