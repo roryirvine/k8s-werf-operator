@@ -20,6 +20,7 @@ from pkg_resources import parse_version
 
 DISABLE_ANNOTATION = 'operator.werf.dev/disable-autoupdate'
 BUNDLE_ANNOTATION = 'operator.werf.dev/bundle-uid'
+PATCH_RESOURCES = 'all,cm,ing,pvc,pv,netpol,quota,limits,hpa,pdb,sa'
 JOB_LABEL = 'operator.werf.dev/deployment'
 JOBS_TTL = int(os.getenv('WERF_OPERATOR_JOBS_TTL', '120'))
 T = _t.TypeVar('T')
@@ -131,7 +132,7 @@ class RepoHandler:
             if self.uid and BUNDLE_ANNOTATION in self.labels:
                 command += (
                     f' && '
-                    f'for i in $(werf kubectl -n {ns} get all -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
+                    f'for i in $(werf kubectl -n {ns} get {PATCH_RESOURCES} -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
                     'do '
                     f'werf kubectl patch -n {ns} $i -p \'{json.dumps(patch_data)}\';'
                     'done'
