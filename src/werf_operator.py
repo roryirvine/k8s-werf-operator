@@ -128,7 +128,7 @@ class RepoHandler:
             }
             command = action
             if self.uid and BUNDLE_ANNOTATION in self.labels:
-                command = (
+                command += (
                     f' && '
                     f'for i in $(werf kubectl -n {self.namespace} get all -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
                     'do '
