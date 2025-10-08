@@ -115,29 +115,12 @@ class RepoHandler:
             env_variables.update({k: v for k, v in self.env.items() if k not in env_variables})
 
         if action == 'dismiss':
-            command = f'helm uninstall {name} --namespace={ns}'
+            command = ['helm', 'uninstall', name, f'--namespace={ns}']
+            args = []
         else:
-            patch_data = {
-                "metadata": {
-                    "ownerReferences": [
-                        {
-                            "apiVersion": "operator.werf.dev/v1",
-                            "kind": "Bundle",
-                            "name": name,
-                            "uid": self.uid,
-                        },
-                    ],
-                },
-            }
-            command = action
-            if self.uid and BUNDLE_ANNOTATION in self.labels:
-                command += (
-                    f' && '
-                    f'for i in $(werf kubectl -n {ns} get {PATCH_RESOURCES} -l {BUNDLE_ANNOTATION}={self.uid} -o name);'
-                    'do '
-                    f'werf kubectl patch -n {ns} $i -p \'{json.dumps(patch_data)}\';'
-                    'done'
-                )
+            command = ['werf']
+            command.extend(action.split())
+            args = []
 
         image = f'registry.werf.io/werf/werf:{os.getenv("WERF_OPERATOR_TAG", "latest")}'
 
@@ -151,7 +134,7 @@ class RepoHandler:
             },
         ]
 
-        if action != dismiss and self.values:
+        if action != 'dismiss' and self.values:
             with suppress(Exception):
                 api_client = k8s_client.CoreV1Api()
                 data = api_client.read_namespaced_config_map(self.values, namespace=namespace).data
@@ -177,8 +160,8 @@ class RepoHandler:
         exec_container = {
             "image": image,
             "name": f"{action.replace(' ', '-')}-bundle",
-            "command": ['sh'],
-            "args": ['-ec', f'werf {command}'],
+            "command": command,
+            "args": args,
             "env": [
                 {"name": key, "value": value}
                 for key, value in env_variables.items()
