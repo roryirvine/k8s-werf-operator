@@ -16,7 +16,7 @@ cleanup:
 
 ---
 image: operator
-from: ubuntu:24.04
+from: python:3.12-slim
 fromLatest: true
 mount:
   - from: build_dir
@@ -33,30 +33,11 @@ git:
     - requirements*.txt
 shell:
   beforeInstall:
-    - apt update
-    - apt install python3.12-minimal libyaml-0-2 locales -y
-    - find /usr/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
-    - sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
-    - locale-gen
+    - apt-get update
+    - apt-get install -y --no-install-recommends libyaml-0-2
+    - rm -rf /var/lib/apt/lists/*
   install:
-    - apt update
-    - apt install curl -y
-    - mv -v /usr/lib/python3.12/EXTERNALLY-MANAGED ./
-    - curl https://bootstrap.pypa.io/get-pip.py | python3.12
-    - mv -v ./EXTERNALLY-MANAGED /usr/lib/python3.12/
-    - find /usr/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
-    - apt remove curl -y
-    - apt autoremove -y
-  setup:
-    - apt update
-    - apt install python3.12-dev libyaml-dev -y
-    - mv -v /usr/lib/python3.12/EXTERNALLY-MANAGED ./
-    - pip install -r/app/requirements.txt setuptools
-    - mv -v ./EXTERNALLY-MANAGED /usr/lib/python3.12/
-    - find /usr/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
-    - find /usr/local/lib/python3.12/ -type d -name "__pycache__" -exec rm -r {} +
-    - apt remove python3.12-dev libyaml-dev -y
-    - apt autoremove -y
+    - pip install --no-cache-dir -r /app/requirements.txt
 docker:
   ENV:
     WERF_OPERATOR_TIMER_INTERVAL: 600
