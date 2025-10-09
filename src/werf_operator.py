@@ -11,6 +11,7 @@ import uuid
 from collections import defaultdict
 from contextlib import suppress
 from copy import deepcopy
+from datetime import datetime, timezone
 
 import kopf
 import yaml
@@ -25,6 +26,34 @@ PATCH_RESOURCES = 'all,cm,ing,pvc,pv,netpol,quota,limits,hpa,pdb,sa'
 JOB_LABEL = 'operator.werf.dev/deployment'
 JOBS_TTL = int(os.getenv('WERF_OPERATOR_JOBS_TTL', '120'))
 T = _t.TypeVar('T')
+
+
+def set_condition(patch, condition_type, status, reason=None, message=None):
+    """Set a condition in the status."""
+    if "conditions" not in patch.status:
+        patch.status["conditions"] = []
+
+    # Check if the condition of the same type already exists
+    existing_condition_index = -1
+    for i, c in enumerate(patch.status["conditions"]):
+        if c["type"] == condition_type:
+            existing_condition_index = i
+            break
+
+    new_condition = {
+        "type": condition_type,
+        "status": status,
+        "lastTransitionTime": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+        "message": message,
+    }
+
+    if existing_condition_index != -1:
+        # Update existing condition
+        patch.status["conditions"][existing_condition_index] = new_condition
+    else:
+        # Add new condition
+        patch.status["conditions"].append(new_condition)
 
 
 def reconnect_on_error(func: T) -> T:
@@ -328,6 +357,7 @@ def update(name, namespace, status, body, patch, logger, spec, **_):
             latest_tag = handler.get_required_tag()
         else:
             kopf.exception(body, exc=err)
+            set_condition(patch, "Ready", "False", reason="RepoError", message=str(err))
             raise kopf.TemporaryError('Cannot parse latest tag.', delay=300)
 
     current_digest = status.get('deploy', {}).get('digest')
@@ -335,6 +365,7 @@ def update(name, namespace, status, body, patch, logger, spec, **_):
         latest_digest = handler.get_required_digest(latest_tag)
     except ValueError as err:
         kopf.exception(body, exc=err)
+        set_condition(patch, "Ready", "False", reason="DigestError", message=str(err))
         raise kopf.TemporaryError(str(err))
 
     if str(current_digest) == str(latest_digest) and not status.get('forceUpdate'):
@@ -342,6 +373,7 @@ def update(name, namespace, status, body, patch, logger, spec, **_):
 
     kopf.info(body, reason='Update', message='Initialize deploy application by digest update.')
     logger.info(f"Updating bundle image:\n{current_digest=}\n{latest_digest=}\nforceUpdate{status.get('forceUpdate')}")
+    set_condition(patch, "Progressing", "True", reason="Update", message=f"Deploying version {latest_tag}")
     patch.status['target'] = {"digest": latest_digest, "version": latest_tag}
     job = handler.deploy(latest_tag, name, namespace)
     kopf.adopt(job)
@@ -364,9 +396,13 @@ def update(name, namespace, status, body, patch, logger, spec, **_):
         if event_object.status.succeeded:
             w.stop()
             patch.status['deploy'] = {"digest": latest_digest, "version": latest_tag}
+            set_condition(patch, "Progressing", "False", reason="UpdateComplete", message="Deployment successful")
+            set_condition(patch, "Ready", "True", reason="UpdateComplete", message="Deployment successful")
             kopf.info(body, reason='Update', message='Actual release has been deployed.')
         if not event_object.status.active and event_object.status.failed:
             w.stop()
+            set_condition(patch, "Progressing", "False", reason="UpdateFailed", message="Deployment job failed")
+            set_condition(patch, "Ready", "False", reason="UpdateFailed", message="Deployment job failed")
             kopf.info(body, reason="ERROR", message="Cannot deploy release. Job failed.")
 
     if status['forceUpdate']:

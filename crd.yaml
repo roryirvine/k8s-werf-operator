@@ -72,6 +72,27 @@ spec:
             status:
               type: object
               properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                        description: "type of condition e.g. Ready, Progressing"
+                      status:
+                        type: string
+                        description: "status of the condition, one of True, False, Unknown"
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
                 ready:
                   type: integer
                   default: 0
